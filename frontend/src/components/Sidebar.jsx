@@ -1,11 +1,17 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Smartphone, History, Settings, Radar, Satellite } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
+import {
+  LayoutDashboard, Smartphone, History, Settings,
+  Satellite, Route, Building2, Search
+} from 'lucide-react'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/devices', icon: Smartphone, label: 'Devices' },
-  { to: '/history', icon: History, label: 'History' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/devices',   icon: Smartphone,      label: 'Devices' },
+  { to: '/routes',    icon: Route,           label: 'Routes' },
+  { to: '/hierarchy', icon: Building2,       label: 'Hierarchy' },
+  { to: '/search',    icon: Search,          label: 'Search' },
+  { to: '/history',   icon: History,         label: 'History' },
+  { to: '/settings',  icon: Settings,        label: 'Settings' },
 ]
 
 export default function Sidebar() {
@@ -17,12 +23,12 @@ export default function Sidebar() {
           <Satellite size={16} className="text-hub-accent" />
         </div>
         <span className="hidden lg:block font-display font-semibold text-sm tracking-wide text-hub-text">
-          Find Hub
+          Central Dashboard
         </span>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-2 py-4 space-y-1">
+      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
@@ -32,7 +38,7 @@ export default function Sidebar() {
               `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all group
                ${isActive
                  ? 'bg-hub-accent/10 text-hub-accent border border-hub-accent/20'
-                 : 'text-hub-muted hover:text-hub-text hover:bg-white/5'}`
+                 : 'text-hub-muted hover:text-hub-text hover:bg-white/5 border border-transparent'}`
             }
           >
             <Icon size={18} className="flex-shrink-0" />

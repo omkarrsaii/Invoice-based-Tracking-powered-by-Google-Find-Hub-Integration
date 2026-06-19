@@ -1,85 +1,87 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const logger = require('./utils/logger');
-const apiRoutes = require('./routes/api');
-const invoiceRoutes = require('./routes/invoice');
-const { startScheduler } = require('./services/schedulerService');
-const { runFetch } = require('./services/fetchService');
-const { hasSession, initBrowserSingleton } = require('./services/browserService');
-const { getDb } = require('./db/database');
-const { startAutoSync } = require('./services/mappingService');
+const cors    = require('cors');
+const path    = require('path');
+const logger  = require('./utils/logger');
 
-const app = express();
+const apiRoutes       = require('./routes/api');
+const invoiceRoutes   = require('./routes/invoice');
+const routeRoutes     = require('./routes/routeRoutes');
+const hierarchyRoutes = require('./routes/hierarchyRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+
+const { startScheduler }      = require('./services/schedulerService');
+const { runFetch }             = require('./services/fetchService');
+const { hasSession, initBrowserSingleton } = require('./services/browserService');
+const { getDb }                = require('./db/database');
+const { startAutoSync }        = require('./services/mappingService');
+const { startMasterDataSync }  = require('./services/masterDataService');
+
+const app  = express();
 const PORT = process.env.PORT || 5000;
 
-// ─── Allowed Origins ──────────────────────────────────────────────────────────
-// Admin dashboard  : FRONTEND_URL        (default: localhost:5173)
-// Client tracker   : CLIENT_TRACKER_URL  (default: localhost:5174)
-
+// ─── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL       || 'http://localhost:5173',
   process.env.CLIENT_TRACKER_URL || 'http://localhost:5174',
-].filter(Boolean)
- .map(o => o.trim().replace(/:+$/, ''));  // strip trailing colons e.g. "5174:"
+].filter(Boolean).map(o => o.trim().replace(/:+$/, ''));
 
-// Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (server-to-server, curl, Postman)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(new Error(`CORS: origin "${origin}" not allowed`));
   },
-  credentials: true
+  credentials: true,
 }));
 app.use(express.json());
 
-// Request logging
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api')) return next();
   logger.info(`${req.method} ${req.path}`);
   next();
 });
 
-// API routes
+// ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api', apiRoutes);
 app.use('/api/invoice', invoiceRoutes);
+app.use('/api/routes', routeRoutes);
+app.use('/api/hierarchy', hierarchyRoutes);
+app.use('/api/dashboard', dashboardRoutes);   // includes /api/dashboard/stats
+app.use('/api', dashboardRoutes);             // also exposes /api/search directly
 
-// Serve admin frontend in production
+// ─── Production static serving ────────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {
   const frontendPath = path.join(__dirname, '../../frontend/dist');
   app.use(express.static(frontendPath));
-
-  // Serve client-tracker on /track/* to avoid clashing with admin SPA
   const clientTrackerPath = path.join(__dirname, '../../client-tracker/dist');
   app.use('/track', express.static(clientTrackerPath));
-  app.get('/track/*', (req, res) => {
-    res.sendFile(path.join(clientTrackerPath, 'index.html'));
-  });
-
-  // Admin SPA fallback (must come last)
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(frontendPath, 'index.html'));
-  });
+  app.get('/track/*', (req, res) =>
+    res.sendFile(path.join(clientTrackerPath, 'index.html'))
+  );
+  app.get('*', (req, res) =>
+    res.sendFile(path.join(frontendPath, 'index.html'))
+  );
 }
 
-// Error handler
+// ─── Error handler ────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   logger.error('Unhandled error: ' + err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// ─── Startup ──────────────────────────────────────────────────────────────────
 async function startServer() {
-  // Initialize DB
   getDb();
 
-  // Start mapping auto-sync from Google Sheets (no-op if not configured)
+  // Start invoice/vehicle mapping auto-sync (existing)
   startAutoSync();
 
+  // Start route + hierarchy auto-sync (new)
+  startMasterDataSync();
+
   app.listen(PORT, () => {
-    logger.info(`Find Hub Tracker  running on http://localhost:${PORT}`);
+    logger.info(`Find Hub Tracker running on http://localhost:${PORT}`);
   });
 
   if (!hasSession()) {
@@ -87,8 +89,6 @@ async function startServer() {
     return;
   }
 
-  // FIX (Issues 3 & 4): Launch browser ONCE here and keep it alive.
-  // fetchAllDevices() will reuse this singleton on every scheduled cycle.
   try {
     await initBrowserSingleton();
   } catch (err) {
@@ -97,11 +97,8 @@ async function startServer() {
     return;
   }
 
-  // Start scheduler
   const interval = parseInt(process.env.FETCH_INTERVAL) || 10;
   startScheduler(interval);
-
-  // Run initial fetch
   logger.info('Running initial fetch on startup...');
   setTimeout(() => runFetch(), 3000);
 }
