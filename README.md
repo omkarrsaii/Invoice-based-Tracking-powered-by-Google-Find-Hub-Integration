@@ -1,4 +1,4 @@
-# 📍 Find Hub Tracker
+# Find Hub Tracker
 
 Automatically extracts device locations from **Google Find Hub** on a schedule, stores history, and presents a live dashboard with Excel/CSV export.
 
