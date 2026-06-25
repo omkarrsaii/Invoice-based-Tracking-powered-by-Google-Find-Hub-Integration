@@ -44,5 +44,11 @@ export const getDistributors      = (params) => api.get('/hierarchy/distributors
 export const getDistributorDetail = (code) =>
   api.get(`/hierarchy/distributor/${encodeURIComponent(code)}`).then(r => r.data)
 
+// ─── Hierarchy: Performance KPIs (added for ASM/TSOE Performance tab) ───────
+export const getAsmKpis  = (name) =>
+  api.get(`/hierarchy/kpis/asm/${encodeURIComponent(name)}`).then(r => r.data)
+export const getTsoeKpis = (name) =>
+  api.get(`/hierarchy/kpis/tsoe/${encodeURIComponent(name)}`).then(r => r.data)
+
 // ─── Default export — unchanged, several existing files import this ─────────
 export default api

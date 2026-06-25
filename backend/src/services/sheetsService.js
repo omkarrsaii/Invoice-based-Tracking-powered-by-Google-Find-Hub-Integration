@@ -213,6 +213,8 @@ async function fetchInvoiceMappings() {
     invoiceDate:     findColIndex(headers, 'invoice date', 'date'),
     status:          findColIndex(headers, 'status'),
     remarks:         findColIndex(headers, 'any other remarks', 'other remarks', 'remarks'),
+    // ── Added for ASM/TSOE Performance KPIs — purely additive, existing fields above unchanged ──
+    appointmentDate: findColIndex(headers, 'appointment date', 'appointment'),
   };
 
   const mappings = [];
@@ -234,6 +236,7 @@ async function fetchInvoiceMappings() {
       invoiceDate:     idx.invoiceDate     >= 0 ? String(row[idx.invoiceDate]     || '').trim() : '',
       status:          idx.status          >= 0 ? String(row[idx.status]          || '').trim() : '',
       remarks:         idx.remarks         >= 0 ? String(row[idx.remarks]         || '').trim() : '',
+      appointmentDate: idx.appointmentDate >= 0 ? String(row[idx.appointmentDate] || '').trim() : '',
     });
   }
   logger.info(`sheetsService: parsed ${mappings.length} invoice→vehicle entries`);

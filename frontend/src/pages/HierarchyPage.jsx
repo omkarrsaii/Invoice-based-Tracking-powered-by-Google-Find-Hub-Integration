@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronRight, ChevronDown, Building2, AlertCircle, Layers, FileText } from 'lucide-react'
+import { ChevronRight, ChevronDown, Building2, AlertCircle, Layers, FileText, BarChart3, TrendingUp, Users, CheckCircle2, Clock } from 'lucide-react'
 import Header from '../components/Header'
-import { getHierarchyTree, syncHierarchy, getDistributorDetail } from '../lib/api'
+import { getHierarchyTree, syncHierarchy, getDistributorDetail, getAsmKpis, getTsoeKpis } from '../lib/api'
 
 // Sheet dates are DD.MM.YYYY (e.g. "12.02.2026" = 12th February). Native
-// `new Date()` misreads dot-separated dates as MM.DD.YYYY — parse the
 // day-month-year order explicitly instead. Kept in sync with the same
 // fix in the Distributor Portal's DistributorDashboard.jsx.
 function formatInvoiceDate(dateStr) {
@@ -323,8 +322,121 @@ function ZoneNode({ zone, onSelect }) {
   )
 }
 
-// ─── Main page ─────────────────────────────────────────────────────────────────
+// ─── Performance KPIs panel (ASM / TSOE) ───────────────────────────────────────
+// New "Performance" tab: pick a level (ASM or TSOE), pick a name, see the
+// 5 KPI metrics for that group. Reuses the same backend rule the rest of
+// the app already uses for active invoices — these numbers will always
+// match what you'd see drilling into individual distributors.
+
+function KpiCard({ icon: Icon, label, value, suffix = '', color = 'text-hub-text', sub = null }) {
+  return (
+    <div className="rounded-xl border border-hub-border bg-hub-card p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon size={14} className={color} />
+        <p className="text-xs text-hub-muted uppercase tracking-wider">{label}</p>
+      </div>
+      <p className={`text-2xl font-display font-bold ${color}`}>
+        {value}{suffix}
+      </p>
+      {sub && <p className="text-xs text-hub-muted mt-1">{sub}</p>}
+    </div>
+  )
+}
+
+function PerformancePanel({ allAsms, allTsoes }) {
+  const [level, setLevel]     = useState('asm') // 'asm' | 'tsoe'
+  const [name, setName]       = useState('')
+  const [kpis, setKpis]       = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState(null)
+
+  const options = level === 'asm'
+    ? Array.from(new Set(allAsms.map(a => a.asmName))).sort()
+    : Array.from(new Set(allTsoes.map(t => t.tsoeName))).sort()
+
+  // Reset selected name when switching level, default to the first option.
+  useEffect(() => {
+    setName(options[0] || '')
+  }, [level, options.length])
+
+  useEffect(() => {
+    if (!name) { setKpis(null); return }
+    setLoading(true); setError(null)
+    const fetcher = level === 'asm' ? getAsmKpis(name) : getTsoeKpis(name)
+    fetcher
+      .then(setKpis)
+      .catch(e => setError(e.response?.data?.message || e.message))
+      .finally(() => setLoading(false))
+  }, [level, name])
+
+  return (
+    <div className="rounded-xl border border-hub-border bg-hub-card">
+      <div className="px-5 py-4 border-b border-hub-border flex items-center gap-2">
+        <BarChart3 size={16} className="text-hub-accent" />
+        <h2 className="font-display font-semibold text-sm text-hub-text">Performance</h2>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Selectors */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex rounded-lg border border-hub-border overflow-hidden">
+            {['asm', 'tsoe'].map(l => (
+              <button
+                key={l}
+                onClick={() => setLevel(l)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  level === l ? 'bg-hub-accent/15 text-hub-accent' : 'text-hub-muted hover:bg-hub-bg/50'
+                }`}
+              >
+                {l.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          <select
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="flex-1 min-w-[180px] px-3 py-1.5 rounded-lg bg-hub-bg/40 border border-hub-border text-sm text-hub-text focus:outline-none focus:border-hub-accent/50"
+          >
+            {options.length === 0 && <option value="">No {level === 'asm' ? 'ASMs' : 'TSOEs'} found</option>}
+            {options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="w-6 h-6 border-2 border-hub-accent/30 border-t-hub-accent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg p-3">
+            <AlertCircle size={14} /><span className="text-sm">{error}</span>
+          </div>
+        )}
+
+        {kpis && !loading && !error && (
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <KpiCard icon={Users}        label="Distributors"       value={kpis.distributorCount} color="text-hub-text" />
+            <KpiCard icon={FileText}     label="Total Invoices"     value={kpis.totalInvoices}    color="text-hub-accent" />
+            <KpiCard icon={TrendingUp}   label="Active"             value={kpis.activeInvoices}   color="text-hub-yellow" />
+            <KpiCard icon={CheckCircle2} label="Completion Rate"    value={kpis.completionRate} suffix="%" color="text-hub-green"
+              sub={`${kpis.completedInvoices} of ${kpis.totalInvoices} completed`} />
+            <KpiCard icon={Clock}        label="Overdue (active)"   value={kpis.overdueInvoices}  color={kpis.overdueInvoices > 0 ? 'text-hub-red' : 'text-hub-muted'} />
+          </div>
+        )}
+
+        {!kpis && !loading && !error && name && (
+          <p className="text-hub-muted text-sm text-center py-6">No data for this selection.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 export default function HierarchyPage() {
+  const [tab, setTab]           = useState('tree') // 'tree' | 'performance'
   const [tree, setTree]         = useState(null)
   const [loading, setLoading]   = useState(true)
   const [syncing, setSyncing]   = useState(false)
@@ -357,7 +469,27 @@ export default function HierarchyPage() {
       <Header title="Organisation Hierarchy" status={null} refreshing={syncing} onRefresh={handleSync} />
 
       <div className="p-6 space-y-6 animate-fade-in">
+        {/* Tab switcher */}
+        <div className="flex rounded-lg border border-hub-border overflow-hidden w-fit">
+          {[
+            { key: 'tree',        label: 'Tree',        icon: Building2 },
+            { key: 'performance', label: 'Performance', icon: BarChart3 },
+          ].map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                tab === key ? 'bg-hub-accent/15 text-hub-accent' : 'text-hub-muted hover:bg-hub-bg/50'
+              }`}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Stats bar */}
+        {tab === 'tree' && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
             { label: 'Zones',        value: tree?.length ?? '—',        color: 'text-hub-accent' },
@@ -372,8 +504,10 @@ export default function HierarchyPage() {
             </div>
           ))}
         </div>
+        )}
 
         {/* Tree */}
+        {tab === 'tree' && (
         <div className="rounded-xl border border-hub-border bg-hub-card">
           <div className="px-5 py-4 border-b border-hub-border flex items-center gap-2">
             <Building2 size={16} className="text-hub-accent" />
@@ -406,6 +540,12 @@ export default function HierarchyPage() {
             )}
           </div>
         </div>
+        )}
+
+        {/* Performance */}
+        {tab === 'performance' && (
+          <PerformancePanel allAsms={allAsms} allTsoes={allTsoes} />
+        )}
       </div>
 
       {selected && (

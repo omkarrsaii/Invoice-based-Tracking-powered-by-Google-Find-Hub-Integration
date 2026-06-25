@@ -18,6 +18,7 @@ const md      = require('../services/masterDataService');
 const { getAllInvoiceMappings, getAllVehicleDeviceMappings } = require('../services/mappingService');
 const { getAllDevices } = require('../db/database');
 const { getActiveInvoicesForDistributor } = require('../services/distributorPortalService');
+const kpi = require('../services/kpiService');
 
 // ─── Helper: get live vehicle status for a distributor ─────────────────────
 
@@ -182,6 +183,45 @@ router.get('/distributor/:code', (req, res) => {
     });
   } catch (err) {
     logger.error('GET /api/hierarchy/distributor/:code error: ' + err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/hierarchy/kpis/asm/:name ────────────────────────────────────────
+// Performance KPIs for a single ASM: totalInvoices, activeInvoices,
+// completedInvoices, completionRate (%), overdueInvoices, distributorCount.
+
+router.get('/kpis/asm/:name', (req, res) => {
+  try {
+    const result = kpi.getKpisForAsm(req.params.name);
+    if (!result) {
+      return res.status(404).json({
+        error:   'ASM_NOT_FOUND',
+        message: `No ASM found matching "${req.params.name}".`,
+      });
+    }
+    res.json(result);
+  } catch (err) {
+    logger.error('GET /api/hierarchy/kpis/asm/:name error: ' + err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/hierarchy/kpis/tsoe/:name ───────────────────────────────────────
+// Same KPI set, scoped to a single TSOE's distributors.
+
+router.get('/kpis/tsoe/:name', (req, res) => {
+  try {
+    const result = kpi.getKpisForTsoe(req.params.name);
+    if (!result) {
+      return res.status(404).json({
+        error:   'TSOE_NOT_FOUND',
+        message: `No TSOE found matching "${req.params.name}".`,
+      });
+    }
+    res.json(result);
+  } catch (err) {
+    logger.error('GET /api/hierarchy/kpis/tsoe/:name error: ' + err.message);
     res.status(500).json({ error: err.message });
   }
 });

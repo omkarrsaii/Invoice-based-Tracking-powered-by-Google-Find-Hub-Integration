@@ -177,4 +177,7 @@ module.exports = {
   getDistributorSummary,
   getPaginatedInvoices,
   getActiveInvoicesForDistributor,
+  // ── Exported for kpiService.js — reuse same rule, don't re-implement ──
+  isActiveInvoice,
+  toComparableDate,
 };
