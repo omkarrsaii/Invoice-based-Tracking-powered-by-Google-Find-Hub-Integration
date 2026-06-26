@@ -24,6 +24,12 @@
 const { getAllInvoiceMappings } = require('./mappingService');
 const logger = require('../utils/logger');
 
+// Lazy require to dodge any load-order edge case — geofenceService doesn't
+// depend on this module, so this is safe, but require()s the live distance
+// calc rather than re-implementing the same Haversine + device/location
+// lookup a third time.
+function getGeofenceService() { return require('./geofenceService'); }
+
 // "Active" = the Status cell AND the "Any Other Remarks" cell are BOTH
 // blank/unfilled. If either one has anything written in it, the invoice
 // is no longer considered active.
@@ -110,12 +116,22 @@ function getActiveInvoicesForDistributor(distributorCode) {
 
   active.sort((a, b) => toComparableDate(b.invoiceDate) - toComparableDate(a.invoiceDate));
 
-  return active.map(m => ({
-    invoiceNo:     m.invoiceNo,
-    invoiceDate:   m.invoiceDate || null,
-    vehicleNo:     m.vehicleNo || null,
-    vehicleStatus: m.vehicleNo ? 'Assigned' : 'Not Assigned',
-  }));
+  const { getDistanceMetersFor, GEOFENCE_RADIUS_METERS } = getGeofenceService();
+
+  return active.map(m => {
+    const distanceMeters = getDistanceMetersFor(m.vehicleNo, m.distributorCode);
+    const reached = distanceMeters != null && distanceMeters <= GEOFENCE_RADIUS_METERS;
+    return {
+      invoiceNo:     m.invoiceNo,
+      invoiceDate:   m.invoiceDate || null,
+      vehicleNo:     m.vehicleNo || null,
+      vehicleStatus: m.vehicleNo ? 'Assigned' : 'Not Assigned',
+      // Live distance-to-destination — computed fresh every call, not
+      // dependent on geofenceService's own write-back having landed yet.
+      distanceMeters: distanceMeters != null ? Math.round(distanceMeters) : null,
+      reached,
+    };
+  });
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────

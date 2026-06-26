@@ -16,6 +16,28 @@ function VehicleStatusBadge({ status }) {
   )
 }
 
+// Live distance-to-destination — swaps to "Reached" once the tag enters
+// the geofence radius (500m by default, GEOFENCE_RADIUS_METERS on the
+// backend). distanceMeters is null when the vehicle has no device, or the
+// device hasn't reported coordinates yet, or the distributor isn't in the
+// Distributor Location sheet — shown as "—" rather than guessing.
+function DistanceBadge({ distanceMeters, reached }) {
+  if (reached) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-ok/15 text-ok border border-ok/30">
+        ✅ Reached
+      </span>
+    )
+  }
+  if (distanceMeters == null) {
+    return <span className="text-xs text-mist/50">Distance unavailable</span>
+  }
+  const label = distanceMeters >= 1000
+    ? `${(distanceMeters / 1000).toFixed(1)} km to go`
+    : `${distanceMeters} m to go`
+  return <span className="text-xs text-mist font-mono">{label}</span>
+}
+
 // Sheet dates are DD.MM.YYYY (e.g. "12.02.2026" = 12th February).
 // `new Date(dateStr)` misreads dot-separated dates as MM.DD.YYYY in most
 // JS engines — "12.02.2026" silently becomes December 2nd instead of
@@ -144,7 +166,10 @@ export default function DistributorDashboard({ distributor, onInvoiceClick, onSi
                     <p className="font-mono text-sm text-snow">{inv.invoiceNo}</p>
                     <p className="text-xs text-mist mt-0.5">{formatDate(inv.invoiceDate)}</p>
                   </div>
-                  <VehicleStatusBadge status={inv.vehicleStatus} />
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <VehicleStatusBadge status={inv.vehicleStatus} />
+                    <DistanceBadge distanceMeters={inv.distanceMeters} reached={inv.reached} />
+                  </div>
                 </button>
               ))}
             </div>

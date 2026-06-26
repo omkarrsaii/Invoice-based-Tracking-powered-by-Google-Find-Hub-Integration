@@ -1,6 +1,7 @@
 const { fetchAllDevices } = require('./browserService');
 const { reverseGeocode } = require('./geocodeService');
 const { upsertDevice, insertHistory, setAppState } = require('../db/database');
+const { runGeofenceCheck } = require('./geofenceService');
 const logger = require('../utils/logger');
 
 let isFetching = false;
@@ -53,6 +54,17 @@ async function runFetch() {
     sessionExpired = false;
 
     logger.info(`=== Fetch complete in ${duration}s — ${results.length} devices ===`);
+
+    // Geofence recalculation — runs on every refresh (manual or scheduled),
+    // since this is the single place "tag location refreshed" happens.
+    // Wrapped defensively: a geofencing failure must never break the
+    // device-location fetch itself, which is the more critical path.
+    try {
+      await runGeofenceCheck();
+    } catch (err) {
+      logger.error('Geofence check failed after fetch: ' + err.message);
+    }
+
     return { success: true, count: results.length, duration, devices: results };
 
   } catch (err) {

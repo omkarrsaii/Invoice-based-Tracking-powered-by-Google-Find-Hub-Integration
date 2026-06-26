@@ -19,10 +19,12 @@ const sheets = require('./sheetsService');
 
 let routeEntries     = [];   // raw route rows
 let hierarchyEntries = [];   // raw hierarchy rows
+let distLocationEntries = []; // raw distributor lat/long rows
 
 // Pre-built lookup maps (rebuilt on every sync)
 let routeMap        = new Map(); // routeName → [entry,...]
 let distHierarchyMap = new Map(); // distributorCode → hierarchyEntry
+let distLocationMap  = new Map(); // distributorCode → { latitude, longitude, ... }
 
 const syncState = {
   routes: {
@@ -32,6 +34,12 @@ const syncState = {
     syncing:    false,
   },
   hierarchy: {
+    lastSyncAt: null,
+    count:      0,
+    error:      null,
+    syncing:    false,
+  },
+  distributorLocations: {
     lastSyncAt: null,
     count:      0,
     error:      null,
@@ -121,11 +129,42 @@ async function syncHierarchy() {
   }
 }
 
+async function syncDistributorLocations() {
+  if (!sheets.isDistributorLocationConfigured()) {
+    logger.info('masterDataService: DISTRIBUTOR_LOCATION_SHEET_ID not configured — skipping distributor-location sync');
+    return { success: false, reason: 'not_configured' };
+  }
+  if (syncState.distributorLocations.syncing) {
+    return { success: false, reason: 'already_syncing' };
+  }
+
+  syncState.distributorLocations.syncing = true;
+  syncState.distributorLocations.error   = null;
+
+  try {
+    const data = await sheets.fetchDistributorLocations();
+    distLocationEntries = data;
+    distLocationMap = new Map(data.map(e => [e.distributorCode, e]));
+
+    syncState.distributorLocations.lastSyncAt = new Date().toISOString();
+    syncState.distributorLocations.count      = data.length;
+    logger.info(`masterDataService: distributor-location sync complete — ${data.length} entries`);
+    return { success: true, entries: data.length };
+  } catch (err) {
+    syncState.distributorLocations.error = err.message;
+    logger.error('masterDataService: distributor-location sync failed — ' + err.message);
+    return { success: false, error: err.message };
+  } finally {
+    syncState.distributorLocations.syncing = false;
+  }
+}
+
 async function syncAll() {
-  const [r, h] = await Promise.allSettled([syncRoutes(), syncHierarchy()]);
+  const [r, h, l] = await Promise.allSettled([syncRoutes(), syncHierarchy(), syncDistributorLocations()]);
   return {
     routes:    r.status === 'fulfilled' ? r.value : { success: false, error: r.reason?.message },
     hierarchy: h.status === 'fulfilled' ? h.value : { success: false, error: h.reason?.message },
+    distributorLocations: l.status === 'fulfilled' ? l.value : { success: false, error: l.reason?.message },
   };
 }
 
@@ -159,6 +198,11 @@ function getMasterDataStatus() {
       configured:   sheets.isHierarchyConfigured(),
       ...syncState.hierarchy,
       totalEntries: hierarchyEntries.length,
+    },
+    distributorLocations: {
+      configured:   sheets.isDistributorLocationConfigured(),
+      ...syncState.distributorLocations,
+      totalEntries: distLocationEntries.length,
     },
   };
 }
@@ -216,6 +260,11 @@ function getRouteDistributorCodes(routeName) {
 /** Get a single distributor's full hierarchy entry */
 function getDistributorHierarchy(distributorCode) {
   return distHierarchyMap.get(String(distributorCode).trim()) || null;
+}
+
+/** Get a distributor's lat/long entry from the Distributor Location sheet (geofencing). */
+function getDistributorLocation(distributorCode) {
+  return distLocationMap.get(String(distributorCode || '').trim()) || null;
 }
 
 /** Get all distinct zones/regions */
@@ -454,6 +503,7 @@ module.exports = {
   syncAll,
   syncRoutes,
   syncHierarchy,
+  syncDistributorLocations,
   getMasterDataStatus,
 
   // Route queries
@@ -464,6 +514,7 @@ module.exports = {
 
   // Hierarchy queries
   getDistributorHierarchy,
+  getDistributorLocation,
   getAllZones,
   getAllClusters,
   getDistributorCodesForCluster,

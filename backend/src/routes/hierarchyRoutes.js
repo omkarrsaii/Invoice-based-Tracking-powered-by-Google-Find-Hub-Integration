@@ -25,6 +25,7 @@ const { getAllInvoiceMappings, getAllVehicleDeviceMappings } = require('../servi
 const { getAllDevices } = require('../db/database');
 const { getActiveInvoicesForDistributor } = require('../services/distributorPortalService');
 const kpi = require('../services/kpiService');
+const geofence = require('../services/geofenceService');
 
 // ─── Helper: get live vehicle status for a distributor ─────────────────────
 
@@ -68,6 +69,28 @@ router.get('/tree', (req, res) => {
 
 router.get('/status', (req, res) => {
   res.json(md.getMasterDataStatus().hierarchy);
+});
+
+// ─── GET /api/hierarchy/distributor-locations/status ──────────────────────────
+// Geofencing sheet sync status — separate from /status (hierarchy) so it's
+// easy to confirm DISTRIBUTOR_LOCATION_SHEET_ID is wired up correctly.
+
+router.get('/distributor-locations/status', (req, res) => {
+  res.json(md.getMasterDataStatus().distributorLocations);
+});
+
+// ─── POST /api/hierarchy/geofence/run ──────────────────────────────────────────
+// Manually triggers a geofence pass — useful for testing without waiting
+// for the next scheduled tag-location refresh (FETCH_INTERVAL).
+
+router.post('/geofence/run', async (req, res) => {
+  try {
+    const result = await geofence.runGeofenceCheck();
+    res.json(result);
+  } catch (err) {
+    logger.error('POST /api/hierarchy/geofence/run error: ' + err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── POST /api/hierarchy/sync ─────────────────────────────────────────────────

@@ -261,6 +261,25 @@ function getAllVehicleDeviceMappings() {
   return Array.from(vehicleMap.entries()).map(([vehicleNo, deviceName]) => ({ vehicleNo, deviceName }));
 }
 
+/**
+ * Flips Status to a new value for a set of invoices, IN-MEMORY ONLY — used
+ * right after geofenceService successfully writes the same change to the
+ * actual Google Sheet, so every other reader (admin Hierarchy KPIs, the
+ * Distributor Portal) sees it immediately instead of waiting up to
+ * SHEET_SYNC_INTERVAL minutes for the next full re-sync to catch up.
+ * Does NOT touch the sheet — sheetsService.updateInvoiceStatuses() is the
+ * one that does that; this just keeps the two in sync.
+ */
+function markInvoicesReached(invoiceNos, value = 'Reached') {
+  bootstrapMaps();
+  let updated = 0;
+  for (const no of (invoiceNos || [])) {
+    const entry = invoiceMap.get(String(no).trim());
+    if (entry) { entry.status = value; updated++; }
+  }
+  return updated;
+}
+
 // ─── CSV importers (manual use) ───────────────────────────────────────────────
 
 function importInvoiceMappingFromCSV(csvFilePath) {
@@ -331,6 +350,7 @@ module.exports = {
   getDeviceByVehicle,
   getAllInvoiceMappings,
   getAllVehicleDeviceMappings,
+  markInvoicesReached,
   importInvoiceMappingFromCSV,
   importVehicleDeviceMappingFromCSV,
 };

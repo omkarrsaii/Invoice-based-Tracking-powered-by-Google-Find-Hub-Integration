@@ -52,7 +52,12 @@ async function getAuthClient() {
   }
   const auth = new google.auth.GoogleAuth({
     keyFile,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    // Upgraded from spreadsheets.readonly — the geofencing feature writes
+    // "Reached" back to the Invoice Sheet's Status column. The service
+    // account's Google account must also be shared as Editor (not just
+    // Viewer) on the Invoice Sheet itself, or writes will fail at runtime
+    // with a permissions error even though this scope is correct.
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
   _authClient = await auth.getClient();
   logger.info('sheetsService: auth client initialised');
@@ -81,6 +86,12 @@ function isHierarchyConfigured() {
   const hasKey      = fs.existsSync(getKeyFilePath());
   const hierarchyId = trimEnv('HIERARCHY_SHEET_ID');
   return hasKey && !!hierarchyId;
+}
+
+function isDistributorLocationConfigured() {
+  const hasKey = fs.existsSync(getKeyFilePath());
+  const locId  = trimEnv('DISTRIBUTOR_LOCATION_SHEET_ID');
+  return hasKey && !!locId;
 }
 
 // ─── Core row fetcher ─────────────────────────────────────────────────────────
@@ -177,6 +188,18 @@ function findColIndex(headers, ...partialNames) {
   return -1;
 }
 
+// 0-indexed column number → A1 letter(s), e.g. 0→"A", 25→"Z", 26→"AA".
+function colIndexToLetter(idx) {
+  let n = idx + 1;
+  let letters = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
 function findHeaderRow(rows, ...requiredPartials) {
   for (let i = 0; i < Math.min(6, rows.length); i++) {
     const lower = (rows[i] || []).map(h => String(h || '').toLowerCase());
@@ -186,6 +209,14 @@ function findHeaderRow(rows, ...requiredPartials) {
   }
   return null;
 }
+
+// ─── Invoice sheet write-back metadata ────────────────────────────────────────
+// Set at the end of every fetchInvoiceMappings() call — remembers exactly
+// where the Status column lives (spreadsheet, tab, column letter) so
+// geofenceService can write "Reached" back to the right cells without
+// re-resolving headers on every write.
+let _invoiceSheetWriteMeta = null;
+function getInvoiceSheetWriteMeta() { return _invoiceSheetWriteMeta; }
 
 // ─── Invoice dispatch sheet parser ───────────────────────────────────────────
 async function fetchInvoiceMappings() {
@@ -217,6 +248,17 @@ async function fetchInvoiceMappings() {
     appointmentDate: findColIndex(headers, 'appointment date', 'appointment'),
   };
 
+  // Remember exactly where Status lives for write-back (geofencing).
+  _invoiceSheetWriteMeta = {
+    spreadsheetId:  sheetId,
+    tab,
+    statusColIndex: idx.status,
+    statusColLetter: idx.status >= 0 ? colIndexToLetter(idx.status) : null,
+  };
+  if (idx.status < 0) {
+    logger.warn('sheetsService: no Status column found — geofencing write-back will be disabled');
+  }
+
   const mappings = [];
   const seen = new Set();
   for (let i = rowIdx + 1; i < rows.length; i++) {
@@ -237,6 +279,8 @@ async function fetchInvoiceMappings() {
       status:          idx.status          >= 0 ? String(row[idx.status]          || '').trim() : '',
       remarks:         idx.remarks         >= 0 ? String(row[idx.remarks]         || '').trim() : '',
       appointmentDate: idx.appointmentDate >= 0 ? String(row[idx.appointmentDate] || '').trim() : '',
+      // ── Added for geofencing write-back — the exact sheet row (1-indexed) this came from ──
+      sheetRowNumber:  i + 1,
     });
   }
   logger.info(`sheetsService: parsed ${mappings.length} invoice→vehicle entries`);
@@ -257,7 +301,39 @@ async function fetchInvoiceMappings() {
   return mappings;
 }
 
-// ─── Vehicle-device mapping sheet parser ──────────────────────────────────────
+// ─── Write-back: Status column (geofencing) ──────────────────────────────────
+// Batches every row that needs updating into a SINGLE Sheets API call,
+// regardless of how many invoices crossed into "Reached" this cycle —
+// important on a 13,000+ row sheet where per-row calls would burn through
+// quota fast on a frequent refresh interval.
+//
+// rowNumbers: array of 1-indexed sheet row numbers (sheetRowNumber from
+// fetchInvoiceMappings' output — NOT array indices).
+async function updateInvoiceStatuses(rowNumbers, value = 'Reached') {
+  if (!rowNumbers || rowNumbers.length === 0) return { success: true, updated: 0 };
+
+  const meta = getInvoiceSheetWriteMeta();
+  if (!meta || meta.statusColIndex < 0) {
+    throw new Error('Cannot write Status updates — invoice sheet write metadata not available (run fetchInvoiceMappings at least once, and confirm a Status column was found).');
+  }
+
+  const authClient = await getAuthClient();
+  const sheets = google.sheets({ version: 'v4', auth: authClient });
+  const quotedTab = quoteSheetNameForRange(meta.tab);
+
+  const data = rowNumbers.map(rowNumber => ({
+    range:  `${quotedTab}!${meta.statusColLetter}${rowNumber}`,
+    values: [[value]],
+  }));
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: meta.spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data },
+  });
+
+  logger.info(`sheetsService: wrote "${value}" to Status for ${rowNumbers.length} row(s) in "${meta.tab}"`);
+  return { success: true, updated: rowNumbers.length };
+}
 async function fetchVehicleMappings() {
   const sheetId = trimEnv('VEHICLE_SHEET_ID');
   const tabName = trimEnv('VEHICLE_SHEET_TAB', 'Sheet1');
@@ -441,12 +517,67 @@ async function fetchHierarchyData() {
   return allEntries;
 }
 
+// ─── Distributor Lat/Long sheet parser (geofencing) ───────────────────────────
+// Expected columns (case-insensitive, partial match):
+//   DISTRIBUTOR_CODE | LATITUDE | LONGITUDE | DISTRIBUTOR_NAME |
+//   CITY_NAME | STATE_NAME | PINCODE | ADDRESS
+async function fetchDistributorLocations() {
+  const sheetId = trimEnv('DISTRIBUTOR_LOCATION_SHEET_ID');
+  const tabName = trimEnv('DISTRIBUTOR_LOCATION_SHEET_TAB', 'Sheet1');
+  if (!sheetId) throw new Error('DISTRIBUTOR_LOCATION_SHEET_ID is not set in .env');
+
+  const { rows, tab } = await fetchSheetRowsWithTabFallback(sheetId, tabName, ['distributor', 'lat']);
+  if (tab !== tabName) logger.info(`sheetsService: distributor-location sheet tab fallback → "${tab}"`);
+  if (rows.length < 2) return [];
+
+  const found = findHeaderRow(rows, 'distributor', 'lat');
+  if (!found) throw new Error('Distributor Location sheet: could not find header row with Distributor Code+Latitude columns.');
+
+  const { rowIdx, headers } = found;
+  const idx = {
+    distCode: findColIndex(headers, 'distributor code', 'distributor_code', 'dist code'),
+    lat:      findColIndex(headers, 'latitude'),
+    lng:      findColIndex(headers, 'longitude'),
+    distName: findColIndex(headers, 'distributor name', 'distributor_name', 'dist name'),
+    city:     findColIndex(headers, 'city name', 'city_name', 'city'),
+    state:    findColIndex(headers, 'state name', 'state_name', 'state'),
+    pincode:  findColIndex(headers, 'pincode', 'pin code'),
+    address:  findColIndex(headers, 'address'),
+  };
+
+  const locations = [];
+  for (let i = rowIdx + 1; i < rows.length; i++) {
+    const row      = rows[i] || [];
+    const distCode = String(row[idx.distCode] || '').trim();
+    const lat      = idx.lat >= 0 ? parseFloat(row[idx.lat]) : NaN;
+    const lng      = idx.lng >= 0 ? parseFloat(row[idx.lng]) : NaN;
+    if (!distCode || isNaN(lat) || isNaN(lng)) continue;
+
+    locations.push({
+      distributorCode: distCode,
+      latitude:        lat,
+      longitude:       lng,
+      distributorName: idx.distName >= 0 ? String(row[idx.distName] || '').trim() : '',
+      cityName:        idx.city    >= 0 ? String(row[idx.city]      || '').trim() : '',
+      stateName:       idx.state   >= 0 ? String(row[idx.state]     || '').trim() : '',
+      pincode:         idx.pincode >= 0 ? String(row[idx.pincode]   || '').trim() : '',
+      address:         idx.address >= 0 ? String(row[idx.address]   || '').trim() : '',
+    });
+  }
+  logger.info(`sheetsService: parsed ${locations.length} distributor location entries`);
+  return locations;
+}
+
 module.exports = {
   isConfigured,
   isRouteConfigured,
   isHierarchyConfigured,
+  isDistributorLocationConfigured,
   fetchInvoiceMappings,
   fetchVehicleMappings,
   fetchRouteData,
   fetchHierarchyData,
+  fetchDistributorLocations,
+  updateInvoiceStatuses,
+  getInvoiceSheetWriteMeta,
 };
