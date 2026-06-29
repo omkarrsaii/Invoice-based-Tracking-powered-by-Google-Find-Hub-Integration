@@ -1,105 +1,97 @@
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Battery, Wifi, Clock, ExternalLink, Smartphone } from 'lucide-react'
+import { MapPin, Battery, Signal, ChevronRight } from 'lucide-react'
 
-function BatteryBar({ value }) {
-  const pct = parseInt(value)
-  if (isNaN(pct)) return <span className="text-hub-muted text-xs">—</span>
-  const color = pct > 50 ? 'bg-hub-green' : pct > 20 ? 'bg-hub-yellow' : 'bg-hub-red'
+function BatteryDot({ pct }) {
+  if (pct == null) return <span className="text-m-muted/40 text-xs">—</span>
+  const n = parseInt(pct)
+  const color = n > 60 ? '#7DC242' : n > 25 ? '#D97706' : '#DC2626'
   return (
-    <div className="flex items-center gap-2">
-      <div className="w-16 h-1.5 rounded-full bg-hub-border overflow-hidden">
-        <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs text-hub-text font-mono">{pct}%</span>
+    <div className="flex items-center gap-1.5">
+      <Battery size={13} style={{ color }} />
+      <span className="text-xs font-mono font-medium" style={{ color }}>{n}%</span>
     </div>
   )
 }
 
-export default function DeviceRow({ device }) {
-  const navigate = useNavigate()
-  const hasLocation = device.latitude && device.longitude
+function LastSeenBadge({ value }) {
+  if (!value) return <span className="text-m-muted/40 text-xs">—</span>
+  const isRecent = /minute|just now|second/i.test(value)
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium
+      ${isRecent
+        ? 'bg-m-green/10 text-m-green-dk border border-m-green/20'
+        : 'bg-m-bg text-m-muted border border-m-border'}`}>
+      {isRecent && <span className="w-1.5 h-1.5 rounded-full bg-m-green pulse-dot inline-block" style={{ background:'#7DC242' }} />}
+      {value}
+    </span>
+  )
+}
 
+export default function DeviceRow({ device }) {
+  const nav = useNavigate()
   return (
     <tr
-      className="border-b border-hub-border hover:bg-white/[0.02] cursor-pointer transition-colors group"
-      onClick={() => navigate(`/devices/${device.id}`)}
+      className="group border-b border-m-border last:border-0 hover:bg-m-bg cursor-pointer transition-colors"
+      onClick={() => nav(`/devices/${device.id}`)}
     >
       {/* Device */}
-      <td className="px-4 py-3">
+      <td className="px-4 py-3.5">
         <div className="flex items-center gap-3">
           {device.imageUrl ? (
-            <img src={device.imageUrl} alt={device.name} className="w-8 h-8 rounded-lg object-contain bg-hub-bg border border-hub-border" />
+            <img src={device.imageUrl} alt={device.name}
+                 className="w-8 h-8 rounded-lg object-contain border border-m-border bg-m-bg" />
           ) : (
-            <div className="w-8 h-8 rounded-lg bg-hub-bg border border-hub-border flex items-center justify-center">
-              <Smartphone size={14} className="text-hub-muted" />
+            <div className="w-8 h-8 rounded-lg bg-m-blue-50 border border-m-blue-100 flex items-center justify-center flex-shrink-0">
+              <Signal size={13} style={{ color: '#0052A5' }} />
             </div>
           )}
-          <div>
-            <p className="text-sm font-medium text-hub-text group-hover:text-hub-accent transition-colors">{device.name}</p>
-            <p className="text-xs text-hub-muted font-mono">ID:{device.id}</p>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-m-text truncate group-hover:text-m-blue-mid transition-colors"
+               style={{ color: undefined }}>
+              {device.name}
+            </p>
+            <p className="text-[11px] text-m-muted font-mono truncate">{device.id}</p>
           </div>
         </div>
       </td>
 
       {/* Coordinates */}
-      <td className="px-4 py-3">
-        {hasLocation ? (
-          <div className="font-mono text-xs">
-            <p className="text-hub-text">{parseFloat(device.latitude).toFixed(5)}</p>
-            <p className="text-hub-muted">{parseFloat(device.longitude).toFixed(5)}</p>
-          </div>
+      <td className="px-4 py-3.5">
+        {device.latitude && device.longitude ? (
+          <span className="text-xs font-mono text-m-muted">
+            {parseFloat(device.latitude).toFixed(4)}, {parseFloat(device.longitude).toFixed(4)}
+          </span>
         ) : (
-          <span className="text-hub-muted text-xs">Unknown</span>
+          <span className="text-m-muted/40 text-xs">—</span>
         )}
       </td>
 
       {/* Location */}
-      <td className="px-4 py-3">
-        <div className="flex items-start gap-1.5">
-          <MapPin size={13} className="text-hub-accent mt-0.5 flex-shrink-0" />
-          <span className="text-xs text-hub-text leading-relaxed">
-            {device.location || 'Unknown'}
-          </span>
-        </div>
+      <td className="px-4 py-3.5">
+        <span className="flex items-center gap-1 text-xs text-m-sub">
+          <MapPin size={11} style={{ color: '#7DC242' }} />
+          {device.city || device.location || '—'}
+        </span>
       </td>
 
       {/* Battery */}
-      <td className="px-4 py-3">
-        <BatteryBar value={device.battery} />
+      <td className="px-4 py-3.5">
+        <BatteryDot pct={device.battery} />
       </td>
 
       {/* Network */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <Wifi size={12} className="text-hub-green" />
-          <span className="text-xs text-hub-text">{device.network || '—'}</span>
-        </div>
+      <td className="px-4 py-3.5">
+        <span className="text-xs text-m-muted">{device.network || '—'}</span>
       </td>
 
-      {/* Last Seen */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <Clock size={12} className="text-hub-muted" />
-          <span className="text-xs text-hub-muted">{device.lastSeen || '—'}</span>
-        </div>
+      {/* Last seen */}
+      <td className="px-4 py-3.5">
+        <LastSeenBadge value={device.lastSeen} />
       </td>
 
-      {/* Actions */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          {hasLocation && (
-            <a
-              href={`https://www.google.com/maps?q=${device.latitude},${device.longitude}`}
-              target="_blank"
-              rel="noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="p-1.5 rounded-lg bg-hub-accent/10 hover:bg-hub-accent/20 text-hub-accent transition-colors"
-              title="Open in Maps"
-            >
-              <ExternalLink size={12} />
-            </a>
-          )}
-        </div>
+      {/* Arrow */}
+      <td className="px-4 py-3.5">
+        <ChevronRight size={14} className="text-m-border group-hover:text-m-muted transition-colors" />
       </td>
     </tr>
   )

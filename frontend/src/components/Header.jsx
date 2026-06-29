@@ -1,63 +1,64 @@
-import { RefreshCw, Download, AlertTriangle, Wifi, WifiOff } from 'lucide-react'
+import { RefreshCw, Download, Wifi, WifiOff, AlertTriangle, ChevronRight } from 'lucide-react'
 
 export default function Header({ status, refreshing, onRefresh, title }) {
-  const sessionOk = status?.session === 'ok'
+  const sessionOk      = status?.session === 'ok'
   const sessionExpired = status?.sessionExpired
 
   return (
-    <header className="sticky top-0 z-30 bg-hub-bg/80 backdrop-blur border-b border-hub-border px-6 py-3 flex items-center justify-between">
-      <div>
-        <h1 className="font-display font-semibold text-hub-text text-lg">{title}</h1>
+    <header className="sticky top-0 z-30 bg-m-surface shadow-header px-6 py-3.5 flex items-center justify-between">
+      {/* Breadcrumb / Title */}
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-m-muted text-xs font-medium hidden sm:inline">Marico</span>
+        <ChevronRight size={13} className="text-m-border hidden sm:inline" />
+        <h1 className="font-bold text-m-text text-base leading-none">{title}</h1>
         {status?.lastSync && (
-          <p className="text-xs text-hub-muted font-mono mt-0.5">
-            Last sync: {new Date(status.lastSync).toLocaleTimeString()}
-          </p>
+          <span className="hidden sm:inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded bg-m-bg text-m-muted text-[10px] font-mono border border-m-border">
+            Sync {new Date(status.lastSync).toLocaleTimeString()}
+          </span>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
-        {/* Session status */}
+      <div className="flex items-center gap-2">
+        {/* Session pill */}
         {sessionExpired ? (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hub-red/10 border border-hub-red/30 text-hub-red text-xs font-medium">
-            <AlertTriangle size={13} />
-            <span>Session Expired</span>
-          </div>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-m-red/8 text-m-red border border-m-red/20">
+            <AlertTriangle size={11} /> Session expired
+          </span>
         ) : sessionOk ? (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hub-green/10 border border-hub-green/30 text-hub-green text-xs font-medium">
-            <Wifi size={13} />
-            <span className="hidden sm:inline">Connected</span>
-          </div>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white border"
+                style={{ background: 'var(--m-green)', borderColor: 'var(--m-green)' }}>
+            <Wifi size={11} /> Connected
+          </span>
         ) : (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hub-yellow/10 border border-hub-yellow/30 text-hub-yellow text-xs font-medium">
-            <WifiOff size={13} />
-            <span className="hidden sm:inline">No Session</span>
-          </div>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-m-amber/10 text-m-amber border border-m-amber/25">
+            <WifiOff size={11} /> No session
+          </span>
         )}
 
-        {/* Export buttons */}
-        <a
-          href="/api/export/csv"
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hub-border/60 hover:bg-hub-border text-hub-muted hover:text-hub-text text-xs font-medium transition-colors"
-        >
-          <Download size={13} />
-          CSV
+        {/* Export */}
+        <a href="/api/export/csv"
+           className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-m-muted hover:text-m-text bg-m-bg hover:bg-m-border/40 border border-m-border transition-colors">
+          <Download size={12} /> CSV
         </a>
-        <a
-          href="/api/export/excel"
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hub-accent/10 hover:bg-hub-accent/20 text-hub-accent border border-hub-accent/20 text-xs font-medium transition-colors"
-        >
-          <Download size={13} />
-          Excel
+        <a href="/api/export/excel"
+           className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+           style={{ color: 'var(--m-blue)', borderColor: 'var(--m-blue)', background: 'var(--m-blue-50, #EBF3FF)' }}
+           onMouseEnter={e => e.currentTarget.style.background='#CCDFF8'}
+           onMouseLeave={e => e.currentTarget.style.background='#EBF3FF'}>
+          <Download size={12} /> Excel
         </a>
 
-        {/* Refresh button */}
+        {/* Refresh */}
         <button
           onClick={onRefresh}
           disabled={refreshing || sessionExpired}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-hub-accent/10 hover:bg-hub-accent/20 text-hub-accent border border-hub-accent/20 text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ background: 'var(--m-blue)' }}
+          onMouseEnter={e => !e.currentTarget.disabled && (e.currentTarget.style.background='var(--m-blue-mid)')}
+          onMouseLeave={e => (e.currentTarget.style.background='var(--m-blue)')}
         >
-          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-          <span>{refreshing ? 'Syncing...' : 'Refresh'}</span>
+          <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Syncing…' : 'Refresh'}
         </button>
       </div>
     </header>
