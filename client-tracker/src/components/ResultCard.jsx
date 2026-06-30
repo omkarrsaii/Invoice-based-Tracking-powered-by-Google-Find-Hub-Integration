@@ -31,7 +31,7 @@ function Badge({ text, color = 'ember' }) {
 }
 
 // ── Vehicle Status Row ─────────────────────────────────────────────────────────
-function VehicleStatusRow({ vehicleLat, vehicleLon }) {
+function VehicleStatusRow({ vehicleLat, vehicleLon, distanceToDestinationMeters, reachedDestination }) {
   const { status, distance, isActive } = getVehicleStatus(vehicleLat, vehicleLon)
 
   // No coordinates → show "unavailable"
@@ -45,6 +45,13 @@ function VehicleStatusRow({ vehicleLat, vehicleLon }) {
       </div>
     )
   }
+
+  // "Distance to Destination" only renders when the backend was able to
+  // compute it (Distributor Location Sheet configured + a match found for
+  // this invoice's distributor). Distinct from "Distance from Hub" above —
+  // that one is a fixed reference point computed client-side; this one is
+  // the live distance to THIS invoice's actual delivery destination.
+  const hasDestinationDistance = distanceToDestinationMeters != null
 
   return (
     <>
@@ -77,6 +84,32 @@ function VehicleStatusRow({ vehicleLat, vehicleLon }) {
           </p>
         </div>
       </div>
+
+      {/* Distance to Destination */}
+      {hasDestinationDistance && (
+        <div className="flex items-start gap-3 py-3 border-b border-rim/60">
+          <span className="mt-0.5 text-ember flex-shrink-0">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-mist mb-0.5 uppercase tracking-widest">Distance to Destination</p>
+            {reachedDestination ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border bg-ok/15 text-ok border-ok/30">
+                ✓ Reached
+              </span>
+            ) : (
+              <p className="text-sm font-mono text-snow">
+                {distanceToDestinationMeters >= 1000
+                  ? `${(distanceToDestinationMeters / 1000).toFixed(1)} km`
+                  : `${distanceToDestinationMeters} m`}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -170,8 +203,13 @@ export default function ResultCard({ result }) {
             />
           )}
 
-          {/* Vehicle Status + Distance from Hub */}
-          <VehicleStatusRow vehicleLat={loc.latitude} vehicleLon={loc.longitude} />
+          {/* Vehicle Status + Distance from Hub + Distance to Destination */}
+          <VehicleStatusRow
+            vehicleLat={loc.latitude}
+            vehicleLon={loc.longitude}
+            distanceToDestinationMeters={data.distanceToDestinationMeters}
+            reachedDestination={data.reachedDestination}
+          />
 
           <InfoRow
             icon={<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>}

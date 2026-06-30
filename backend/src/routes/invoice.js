@@ -31,6 +31,12 @@ const {
   importVehicleDeviceMappingFromCSV,
 } = require('../services/mappingService');
 
+// Lazy require — same dodge-load-order pattern already used in
+// distributorPortalService.js. Reuses the existing single source of truth
+// for vehicle→distributor distance (getInvoiceDistanceMeters) rather than
+// reimplementing the Haversine + device/location lookup a third time.
+function getGeofenceService() { return require('../services/geofenceService'); }
+
 // ─── Core resolution logic ────────────────────────────────────────────────────
 
 async function trackInvoice(invoiceNo, res) {
@@ -82,6 +88,24 @@ async function trackInvoice(invoiceNo, res) {
   // Step 3 — Build and return result
   const hasCoords = deviceRecord.latitude && deviceRecord.longitude;
 
+  // Live distance-to-destination (distributor location), same calc used by
+  // the Distributor Portal's invoice list and the geofencing pass itself —
+  // not a stored/cached value, computed fresh on every request. Wrapped in
+  // try/catch so a missing/misconfigured Distributor Location Sheet never
+  // breaks the core tracking response — it just omits this field.
+  let distanceToDestinationMeters = null;
+  let reachedDestination = false;
+  try {
+    const { getInvoiceDistanceMeters, GEOFENCE_RADIUS_METERS } = getGeofenceService();
+    const meters = getInvoiceDistanceMeters(sanitized);
+    if (meters != null) {
+      distanceToDestinationMeters = Math.round(meters);
+      reachedDestination = meters <= GEOFENCE_RADIUS_METERS;
+    }
+  } catch (err) {
+    logger.warn('trackInvoice: distance-to-destination lookup failed — ' + err.message);
+  }
+
   const result = {
     invoiceNo:  sanitized,
     vehicleNo:  resolution.vehicleNo,
@@ -104,6 +128,8 @@ async function trackInvoice(invoiceNo, res) {
     mapsUrl:   hasCoords
       ? `https://www.google.com/maps?q=${deviceRecord.latitude},${deviceRecord.longitude}`
       : null,
+    distanceToDestinationMeters,
+    reachedDestination,
     trackedAt: new Date().toISOString(),
   };
 
