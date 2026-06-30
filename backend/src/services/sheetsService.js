@@ -244,19 +244,26 @@ async function fetchInvoiceMappings() {
     invoiceDate:     findColIndex(headers, 'invoice date', 'date'),
     status:          findColIndex(headers, 'status'),
     remarks:         findColIndex(headers, 'any other remarks', 'other remarks', 'remarks'),
+    // ── Added for geofencing timestamp write-back — purely additive ──
+    timestamp:       findColIndex(headers, 'timestamp'),
     // ── Added for ASM/TSOE Performance KPIs — purely additive, existing fields above unchanged ──
     appointmentDate: findColIndex(headers, 'appointment date', 'appointment'),
   };
 
-  // Remember exactly where Status lives for write-back (geofencing).
+  // Remember exactly where Status (and Timestamp) live for write-back (geofencing).
   _invoiceSheetWriteMeta = {
     spreadsheetId:  sheetId,
     tab,
     statusColIndex: idx.status,
     statusColLetter: idx.status >= 0 ? colIndexToLetter(idx.status) : null,
+    timestampColIndex: idx.timestamp,
+    timestampColLetter: idx.timestamp >= 0 ? colIndexToLetter(idx.timestamp) : null,
   };
   if (idx.status < 0) {
     logger.warn('sheetsService: no Status column found — geofencing write-back will be disabled');
+  }
+  if (idx.timestamp < 0) {
+    logger.warn('sheetsService: no Timestamp column found — geofencing write-back will only fill Status, not Timestamp');
   }
 
   const mappings = [];
@@ -278,6 +285,7 @@ async function fetchInvoiceMappings() {
       invoiceDate:     idx.invoiceDate     >= 0 ? String(row[idx.invoiceDate]     || '').trim() : '',
       status:          idx.status          >= 0 ? String(row[idx.status]          || '').trim() : '',
       remarks:         idx.remarks         >= 0 ? String(row[idx.remarks]         || '').trim() : '',
+      timestamp:       idx.timestamp       >= 0 ? String(row[idx.timestamp]       || '').trim() : '',
       appointmentDate: idx.appointmentDate >= 0 ? String(row[idx.appointmentDate] || '').trim() : '',
       // ── Added for geofencing write-back — the exact sheet row (1-indexed) this came from ──
       sheetRowNumber:  i + 1,
@@ -301,11 +309,37 @@ async function fetchInvoiceMappings() {
   return mappings;
 }
 
-// ─── Write-back: Status column (geofencing) ──────────────────────────────────
+// Formats "now" as IST clock time only, e.g. "11:30PM IST" — no date, no
+// leading zero on the hour, AM/PM glued to the minutes per the requested
+// format. Computed via manual UTC+5:30 offset arithmetic rather than
+// Intl/timeZone options, since that depends on the Node build having full
+// ICU data installed — this way it works identically everywhere.
+function formatTimestampIST(date = new Date()) {
+  const IST_OFFSET_MIN = 5 * 60 + 30;
+  const istMs = date.getTime() + IST_OFFSET_MIN * 60 * 1000;
+  const ist = new Date(istMs);
+
+  let hours = ist.getUTCHours();
+  const minutes = ist.getUTCMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+
+  const mm = String(minutes).padStart(2, '0');
+  return `${hours}:${mm}${ampm} IST`;
+}
+
+// ─── Write-back: Status + Timestamp columns (geofencing) ─────────────────────
 // Batches every row that needs updating into a SINGLE Sheets API call,
 // regardless of how many invoices crossed into "Reached" this cycle —
 // important on a 13,000+ row sheet where per-row calls would burn through
 // quota fast on a frequent refresh interval.
+//
+// When a Timestamp column exists, every row that gets the Status value also
+// gets the current IST clock time written to Timestamp in the SAME batch
+// call — not a second API round-trip. If no Timestamp column was found on
+// the sheet, this silently skips the Timestamp write and only updates
+// Status (already logged as a warning at parse time).
 //
 // rowNumbers: array of 1-indexed sheet row numbers (sheetRowNumber from
 // fetchInvoiceMappings' output — NOT array indices).
@@ -321,18 +355,35 @@ async function updateInvoiceStatuses(rowNumbers, value = 'Reached') {
   const sheets = google.sheets({ version: 'v4', auth: authClient });
   const quotedTab = quoteSheetNameForRange(meta.tab);
 
+  // Written as plain text, e.g. "11:30PM IST" — Sheets will store it
+  // literally as typed since this isn't a recognized date/time format,
+  // so no cell-formatting surprises regardless of the column's format.
+  const timestampValue = formatTimestampIST();
+
   const data = rowNumbers.map(rowNumber => ({
     range:  `${quotedTab}!${meta.statusColLetter}${rowNumber}`,
     values: [[value]],
   }));
+
+  if (meta.timestampColIndex >= 0) {
+    for (const rowNumber of rowNumbers) {
+      data.push({
+        range:  `${quotedTab}!${meta.timestampColLetter}${rowNumber}`,
+        values: [[timestampValue]],
+      });
+    }
+  }
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: meta.spreadsheetId,
     requestBody: { valueInputOption: 'RAW', data },
   });
 
-  logger.info(`sheetsService: wrote "${value}" to Status for ${rowNumbers.length} row(s) in "${meta.tab}"`);
-  return { success: true, updated: rowNumbers.length };
+  logger.info(
+    `sheetsService: wrote "${value}" to Status for ${rowNumbers.length} row(s) in "${meta.tab}"` +
+    (meta.timestampColIndex >= 0 ? ` (Timestamp also stamped: ${timestampValue})` : ' (no Timestamp column — skipped)')
+  );
+  return { success: true, updated: rowNumbers.length, timestamp: meta.timestampColIndex >= 0 ? timestampValue : null };
 }
 async function fetchVehicleMappings() {
   const sheetId = trimEnv('VEHICLE_SHEET_ID');
